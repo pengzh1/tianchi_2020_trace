@@ -1,0 +1,35 @@
+version: '2.4'
+services:
+  filter0:
+    image: "hub/tctrace:0.10.61"
+    network_mode: "host"
+    environment:
+      SERVER_PORT: 8000
+      GOGC: "off"
+      DEV: "1"
+    cpu_quota: 2000000
+    cpu_period: 1000000
+    volumes:
+      - "/home/user/tctrace/bigdemo:/tmp"
+  filter1:
+    image: "hub/tctrace:0.10.61"
+    network_mode: "host"
+    environment:
+      SERVER_PORT: 8001
+      GOGC: "off"
+      DEV: "1"
+    mem_limit: 4096m
+    cpu_quota: 2000000
+    cpu_period: 1000000
+    volumes:
+      - "/home/user/tctrace/bigdemo:/tmp"
+  backend0:
+    image: "hub/tctrace:0.10.61"
+    network_mode: "host"
+    environment:
+      SERVER_PORT: 8002
+      DEV: "1"
+      GOGC: "off"
+    mem_limit: 2048m
+    cpu_quota: 1000000
+    cpu_period: 1000000

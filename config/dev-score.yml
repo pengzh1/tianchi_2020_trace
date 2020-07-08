@@ -1,0 +1,32 @@
+version: '2.4'
+services:
+  scoring0:
+    image: "hub/tctrace:0.9.14"
+    volumes:
+      - "/root/tctrace/bigdemo:/tmp"
+    depends_on:
+      busybox:
+        condition: service_started
+    network_mode: "host"
+    environment:
+      SERVER_PORT: 10009
+      DATA_PATH: /tmp
+  busybox:
+    image: "busybox"
+    working_dir: "/tmp/pprof"
+    command: ["/bin/sh","-c",
+              "wget localhost:8000/debug/pprof/profile?seconds=18 -O fcprof3 && ",
+              "wget localhost:8000/debug/pprof/block -O fcblock3"
+    ]
+    network_mode: "host"
+    volumes:
+      - "/root/tctrace/bigdemo/pprof:/tmp/pprof"
+  busyboxb:
+    image: "busybox"
+    working_dir: "/tmp/pprof"
+    command: ["/bin/sh","-c",
+              "wget localhost:8002/debug/pprof/profile?seconds=18 -O bcprof3 ",
+    ]
+    network_mode: "host"
+    volumes:
+      - "/root/tctrace/bigdemo/pprof:/tmp/pprof"
