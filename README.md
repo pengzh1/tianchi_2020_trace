@@ -8,5 +8,3 @@
 - reader.go 多线程读取的reader
 - retbuffer.go 提交结果的buffer实现，用来加速提交，(但没啥效果:(
 - util.go 一些工具类
-# 重要提示
-别怪我touji...
