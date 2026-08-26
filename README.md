@@ -17,8 +17,7 @@ segments, aggregates them, and answers filtered statistical queries:
 
 - **Multi-threaded reader** (`reader.go`) for parallel segment ingestion
 - **Filter service** (`filter.go`) implementing the contest's filtering DSL
-- **Backend service** (`backend.go`) — includes a panic-to-commit-time trick
-  to keep progress durable under failure
+- **Backend service** (`backend.go`) — includes a panic-to-commit-time recovery mechanism
 - **Buffered submission** (`retbuffer.go`) to accelerate result commits
   (turned out less effective than hoped, kept for reference)
 

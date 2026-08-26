@@ -1,7 +1,7 @@
 [English](README.md) | **中文**
 
 # 文件说明
-- backend.go backend服务，还支持了panic to commit time的骚操作
+- backend.go backend服务，并支持 panic 后按提交时间恢复的处理机制
 - config docker-compose文件，包括跑分程序，注意修改镜像和volume路径 
     - dev-go.yml
     - dev-score.yml
