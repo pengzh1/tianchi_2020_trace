@@ -16,9 +16,10 @@ import (
 )
 
 func runFilter() {
-	// 这里我是按文件大小分配的缓存，两个filter行大小接近的情况下是可行的。
-	// 换数据后，就炸了，我试了下后把线上的cache换成这个比例才能跑过
-	// 理论上要按行做的，没时间改了
+	// The read buffer is partitioned across the reader workers proportionally
+	// to file size. That stays balanced only while the average span size is
+	// similar on both filters, so these ratios had to be re-tuned when the
+	// dataset changed. Partitioning by line count would be more robust.
 	if port == "8000" {
 		cacheSize = 2000 * 1024 * 1024
 		blockWriteEnds2[readerProcs-1] = cacheSize
@@ -100,7 +101,8 @@ func receiveMetas(c *gin.Context) {
 
 func startFilterProcess(dataPort string) {
 	defer recoverLine()
-	// 这里好像对性能提升没啥效果
+	// Pinning the processing goroutine to one OS thread showed no measurable
+	// benefit in testing.
 	runtime.LockOSThread()
 	datafile := ""
 	if port == "8000" {
@@ -108,10 +110,13 @@ func startFilterProcess(dataPort string) {
 	} else {
 		datafile = "trace2.data"
 	}
-	//dataUrl = fmt.Sprintf("http://localhost:%v/%s", dataPort, datafile)
-	dataUrl = fmt.Sprintf("http://localhost:%v/final/%s", 9989, datafile) //我的nginx地址
+	// dataUrl = fmt.Sprintf("http://localhost:%v/%s", dataPort, datafile)
+	// The trace files are fetched through a local nginx cache, which serves
+	// faster than the scoring server; the direct URL is kept above.
+	dataUrl = fmt.Sprintf("http://localhost:%v/final/%s", 9989, datafile)
 	initReader()
-	//extra是保存上一个block的尾部数据
+	// The extra region at the head of the buffer holds the tail of the
+	// previous block so cross-block traces stay contiguous.
 	readEnd = extraSize
 
 	go readData()
@@ -130,7 +135,8 @@ func startFilterProcess(dataPort string) {
 	}
 }
 
-// goto 不推荐使用，只是这题写起来这样写起来方便
+// The scan is written as a flat state machine using goto labels, which is
+// unconventional in Go but keeps the per-line hot loop free of call overhead.
 func processBlock() {
 	recoverLine()
 	var (
@@ -156,7 +162,8 @@ mainloop:
 				goto searchEnd
 			}
 			searchStart += bytePos
-			// 偷鸡技巧，别喷我
+			// Match the status field by checking the two bytes preceding '='
+			// instead of comparing the full field key.
 			if buffer[searchStart-2] != 'd' || buffer[searchStart-1] != 'e' {
 				if buffer[searchStart-2] != 'o' || buffer[searchStart-1] != 'r' {
 					searchStart += 4
@@ -193,7 +200,7 @@ mainloop:
 			localMetas[localMetaWriteOff] = nMeta
 			localMetaWriteOff++
 			if localMetaWriteOff%120 == 0 && localMetaWriteOff > 0 {
-				go conCollect()
+				go backgroundCollect()
 			}
 			goto mainloop
 		}
@@ -202,28 +209,31 @@ mainloop:
 	goto endCheck
 endCheck:
 	if end < blockEnds[localBlockProcessCount] {
-		// 已经有新数据了，快去处理
+		// New data has already been written; resume the main loop.
 		goto mainloop
 	}
 	if end > 0 && end == blockEnds[localBlockProcessCount] {
-		// 啊，结束了
+		// End of input reached.
 		return
 	} else {
-		// 没数据，等会吧
+		// No new data yet; wait briefly and retry.
 		time.Sleep(5 * time.Millisecond)
 		goto mainloop
 	}
 
 }
 
-func conCollect() {
+// backgroundCollect collects already-scannable error traces concurrently with
+// the block scan; it is started periodically while processBlock runs.
+func backgroundCollect() {
 	defer func() {
 		recoverLine()
 		readErrTraceMtx.Unlock()
 	}()
 	readErrTraceMtx.Lock()
 	end := localMetaWriteOff - 1
-	// 只搜素，目前其前后2w行已经被处理过的error trace
+	// Only collect error traces whose surrounding SpanRange lines have
+	// already been scanned.
 	for ; end > localMetaReadOff; end-- {
 		if (localMetas[end].LineCount+SpanRange)*4 <= spanOffset {
 			break
@@ -261,7 +271,7 @@ func collectBlock() {
 	end++
 	collectLocal(localBlockProcessCount, end, endFlag)
 	localMetaBlockOff[localBlockProcessCount] = localMetaReadOff
-	//process remote
+	// Process the remote metas received so far.
 	for {
 		if remoteBlockProcessCount < localBlockProcessCount {
 			//&& remoteEnd != "1" {

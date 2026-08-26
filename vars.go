@@ -40,25 +40,26 @@ const (
 	relineByte       = '\n'
 	fieldDelimByte   = '|'
 	extraSize        = int32(32 * 1024 * 1024)
-	// 这里设1w行也不会有错trace
+	// Half this window (10k lines) would still yield correct results;
+	// 20k is kept as a safety margin.
 	SpanRange = int32(20000)
 )
 
-// search patterns
+// Filter-side shared state: backend address, meta receive mutex, dedup map.
 var (
 	backendServer string
 	receiveMetasl = sync.Mutex{}
 	emap          map[[12]byte]int32
 )
 
-//error cache
+// Error trace cache.
 var (
 	errTraces  *[errorCacheSize][]byte
 	errOffset  int32
 	errSendOff int32
 )
 
-//trie and block
+// Span index, shared read buffer, and block state.
 var (
 	spanIndex  *[128 * 1024 * 1024]int32
 	spanOffset int32
@@ -69,7 +70,7 @@ var (
 	dataport   = ""
 )
 
-//debug
+// debug
 var (
 	dev        = "1"
 	endProcess = false

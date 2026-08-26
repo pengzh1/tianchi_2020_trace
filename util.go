@@ -130,12 +130,15 @@ func lPrintf(format string, v ...interface{}) {
 	}
 }
 
+// byteSplit splits s into subslices at each occurrence of sep, keeping the
+// trailing separator byte with the preceding segment and including any
+// unterminated tail as the final element.
 func byteSplit(s []byte, sep byte) [][]byte {
-	a := make([][]byte, 256)
+	parts := make([][]byte, 256)
 	i := 0
 	defer func() {
 		if err := recover(); err != nil {
-			print(string(s), string(bytes.Join(a, []byte("{}"))), bytes.IndexByte(s, sep))
+			print(string(s), string(bytes.Join(parts, []byte("{}"))), bytes.IndexByte(s, sep))
 		}
 	}()
 	for {
@@ -143,15 +146,15 @@ func byteSplit(s []byte, sep byte) [][]byte {
 		if m < 0 {
 			break
 		}
-		a[i] = s[: m+1 : m+1]
+		parts[i] = s[: m+1 : m+1]
 		s = s[m+1:]
 		i++
 	}
 	if len(s) > 0 {
-		a[i] = s
-		return a[:i+1]
+		parts[i] = s
+		return parts[:i+1]
 	}
-	return a[:i]
+	return parts[:i]
 }
 func printMem() {
 	var ms runtime.MemStats

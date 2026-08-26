@@ -121,7 +121,9 @@ func (s *backServer) receiveTraces(c *gin.Context) {
 		s.retBuf.write(id, strings.ToUpper(hex.EncodeToString(ret)))
 		delete(s.ErrorTraceMap, id)
 	}
-	// 因为我发现发送结果给 scoreing server很慢，就想的提前连接，提前写数据，结果发现对成绩并没有提升
+	// Submitting results to the scoring server is slow, so the request is
+	// opened early and the buffered checksums are streamed into it as they
+	// are computed. This did not measurably improve the final score.
 	if !sendStart && off > 600 {
 		sendStart = true
 		go func() {

@@ -6,11 +6,12 @@ import (
 	"sync"
 )
 
-// 写一个新的traceid+checksum到request body中
-func (b *retReader) write(k, v string) {
+// write appends one traceID and checksum pair, URL-encoded, to the buffered
+// submission body.
+func (b *retReader) write(traceID, checksum string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	bs := []byte("%2C%22" + k + "%22%3A%22" + v + "%22")
+	bs := []byte("%2C%22" + traceID + "%22%3A%22" + checksum + "%22")
 	if bytes.Equal(b.buf[b.writeOff-3:b.writeOff], []byte("%7B")) {
 		bs = bs[3:]
 	}
@@ -26,11 +27,13 @@ func (b *retReader) setEnd() {
 	b.writeOff += 3
 }
 
+// retReader buffers the final submission body so checksums can be streamed
+// to the scoring server while the filters are still running.
 type retReader struct {
 	mu       sync.Mutex
-	buf      []byte // contents are the bytes buf[off : len(buf)]
-	off      int    // read at &buf[off], write at &buf[len(buf)]
-	writeOff int
+	buf      []byte // submission body accumulated so far
+	off      int    // read position within buf
+	writeOff int    // write position within buf
 	end      bool
 }
 

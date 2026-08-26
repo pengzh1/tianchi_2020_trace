@@ -14,11 +14,11 @@ import (
 )
 
 type scoringServer struct {
-	sum      map[string]string
-	servers  map[string]int
-	mtx      sync.RWMutex
-	datapath string
-	start    time.Time
+	checkSums map[string]string
+	servers   map[string]int
+	mtx       sync.RWMutex
+	datapath  string
+	start     time.Time
 }
 
 func runScoring() {
@@ -36,9 +36,9 @@ func runScoring() {
 		log.Panic(err)
 	}
 	s := scoringServer{
-		sum:      ret,
-		mtx:      sync.RWMutex{},
-		datapath: datapath,
+		checkSums: ret,
+		mtx:       sync.RWMutex{},
+		datapath:  datapath,
 		servers: map[string]int{
 			"http://localhost:8000": 0,
 			"http://localhost:8001": 0,
@@ -119,38 +119,38 @@ func (s *scoringServer) getScore(ret map[string]string, end time.Time) {
 		right    int64 = 0
 		wrong    int64 = 0
 		miss     int64 = 0
-		no       int64 = 0
+		unknown  int64 = 0
 		f1       int64 = 0
-		all            = int64(len(s.sum))
+		all            = int64(len(s.checkSums))
 		wrongIds []string
 	)
 	for k, v := range ret {
-		if rv, ok := s.sum[k]; !ok {
+		if rv, ok := s.checkSums[k]; !ok {
 			log.Printf("nofor:%s,", k)
 			wrongIds = append(wrongIds, k)
-			no++
+			unknown++
 		} else if rv != v {
 			log.Printf("wrongfor:%s,get:%s,expected:%s", k, v, rv)
 			wrongIds = append(wrongIds, k)
-			delete(s.sum, k)
+			delete(s.checkSums, k)
 			wrong++
 		} else {
-			delete(s.sum, k)
+			delete(s.checkSums, k)
 			right++
 		}
 	}
 	miss = all - right - wrong
 	f1 = 4 * 100000 * all
-	if wrong > 0 || no > 0 || miss > 0 {
+	if wrong > 0 || unknown > 0 || miss > 0 {
 		f1 = 0
 	}
 	dur := end.Sub(s.start).Milliseconds()
 	score := f1 / dur
-	for k := range s.sum {
+	for k := range s.checkSums {
 		log.Print("miss ", k)
 	}
 	log.Printf("Score:%v,F1:%v,Duration:%v ms, right:%v, wrong:%v, miss:%v, no:%v \n",
-		score, f1, dur, right, wrong, miss, no)
+		score, f1, dur, right, wrong, miss, unknown)
 	go func() {
 		ids := strings.Join(wrongIds, ",")
 		resp, err := http.Get("http://localhost:8002/scoring/" + ids)

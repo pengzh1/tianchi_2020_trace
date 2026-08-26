@@ -22,7 +22,9 @@ type dataReaderProc struct {
 	block            int32 `json:"-"`
 }
 
-// 按提前规划好的块大小，把文件划分好，包括range范围以及在buffer中写入的范围
+// initReader partitions the input file into the pre-planned block sizes,
+// recording for each reader both the HTTP Range it requests and the buffer
+// region it writes into.
 func initReader() {
 	defer recoverLine()
 	dataClient.Transport = trans
@@ -78,19 +80,22 @@ func initReader() {
 	}
 }
 
-// 启动三个协程，循环读取数据
+// readData starts the reader goroutines. Three run concurrently (one per
+// wait group), cycling through the partitioned range requests; each writes
+// only into its own buffer region and waits until the processing stage has
+// consumed that region before reusing it.
 func readData() {
 	defer recoverLine()
-	wgs := []sync.WaitGroup{{}, {}, {}}
-	wgLen := int32(len(wgs))
+	waitGroups := []sync.WaitGroup{{}, {}, {}}
+	waitGroupCount := int32(len(waitGroups))
 	allWait := func() {
-		for k := range wgs {
-			wgs[k].Wait()
+		for k := range waitGroups {
+			waitGroups[k].Wait()
 		}
 	}
 	waitAdd := func(i int32) {
-		wgs[i%wgLen].Wait()
-		wgs[i%wgLen].Add(1)
+		waitGroups[i%waitGroupCount].Wait()
+		waitGroups[i%waitGroupCount].Add(1)
 	}
 	t := time.Now()
 	defer func() {
@@ -108,12 +113,15 @@ func readData() {
 			localBlockWriteCount++
 		}
 		go func(procCount int32) {
-			defer wgs[procCount%wgLen].Done()
-			readerWk(procCount)
+			defer waitGroups[procCount%waitGroupCount].Done()
+			readerWorker(procCount)
 		}(i)
 	}
 }
-func initReaderRd(procCount int32) {
+
+// openReaderStream executes the reader's range request and attaches the
+// response body, retrying a few times on transient errors.
+func openReaderStream(procCount int32) {
 	recoverLine()
 	proc := dataReaders[procCount]
 	resp, err := dataClient.Do(proc.req)
@@ -132,14 +140,17 @@ func initReaderRd(procCount int32) {
 	}
 	proc.rd = resp.Body
 }
-func readerWk(procCount int32) {
+
+// readerWorker fills the reader's buffer region from its HTTP range request,
+// waiting until the processing stage has consumed the region when necessary.
+func readerWorker(procCount int32) {
 	defer recoverLine()
 	proc := dataReaders[procCount]
-	initReaderRd(procCount)
+	openReaderStream(procCount)
 	proc.NowWrite = proc.WriteStart
 	writeEnd := proc.WriteEnd
 	if proc.block != 0 {
-		for localBlockProcessCount < proc.block && getLookedOff(proc.block) <= proc.WriteEnd {
+		for localBlockProcessCount < proc.block && consumedOffset(proc.block) <= proc.WriteEnd {
 			sleepWriteWaitProcess += 5 * time.Millisecond
 			time.Sleep(5 * time.Millisecond)
 		}
@@ -189,7 +200,11 @@ func setNowWrite(procCount, nowWrite int32) int32 {
 	}
 	return blockNowWrites[proc.block]
 }
-func getLookedOff(block int32) int32 {
+
+// consumedOffset returns the lowest buffer offset still needed by the
+// processing stage, derived conservatively from the meta read positions of
+// two blocks ago; data below it has been consumed and may be overwritten.
+func consumedOffset(block int32) int32 {
 	if localMetaReadOff < 10 || remoteMetaReadOff < 10 {
 		return 0
 	}
@@ -198,17 +213,17 @@ func getLookedOff(block int32) int32 {
 			(remoteMetaBlockOff[block-2] == 0 || remoteMetaReadOff <= remoteMetaBlockOff[block-2]+100)) {
 		return 0
 	}
-	x := (localMetas[localMetaReadOff-3].LineCount - SpanRange) * 4
-	y := (remoteMetas[remoteMetaReadOff-3].LineCount - SpanRange) * 4
-	if x < 0 || y < 0 {
+	localIdx := (localMetas[localMetaReadOff-3].LineCount - SpanRange) * 4
+	remoteIdx := (remoteMetas[remoteMetaReadOff-3].LineCount - SpanRange) * 4
+	if localIdx < 0 || remoteIdx < 0 {
 		return 0
 	}
-	of1 := spanIndex[x]
-	of2 := spanIndex[y]
-	if of1 < of2 {
-		return of1
+	localOff := spanIndex[localIdx]
+	remoteOff := spanIndex[remoteIdx]
+	if localOff < remoteOff {
+		return localOff
 	}
-	return of2
+	return remoteOff
 }
 func (d *dataReaderProc) MarshalJSON() ([]byte, error) {
 	ret := fmt.Sprintf(`{"data":"%d %d %d"}`, d.WriteStart, d.WriteEnd, d.NowWrite)
